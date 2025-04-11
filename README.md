@@ -96,10 +96,6 @@ To use VirusTotal features, you need to:
 - IP addresses are defanged in the output
 - Large attachments are flagged for review
 
-## License
-
-[Your chosen license]
-
 ## Author
 
 Russ McGlamery
