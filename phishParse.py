@@ -80,13 +80,14 @@ WHITE = "\033[37m" if supports_color() else ""
 BLUE_BOLD = "\033[1;34m" if supports_color() else ""
 RESET = "\033[0m" if supports_color() else ""
 PURPLE = "\033[35m" if supports_color() else ""
+GREEN = "\033[32m" if supports_color() else ""
 
 # Add these constants at the top
 SECTION_WIDTH = 60
 SEPARATOR = "=" * SECTION_WIDTH
 SUBSEPARATOR = "-" * SECTION_WIDTH
 
-# Add this with the other constants
+# VirusTotal configuration
 VIRUSTOTAL_API_KEY = os.getenv('VIRUSTOTAL_API_KEY')  # User needs to set this environment variable
 VIRUSTOTAL_TIMEOUT = 30  # Timeout in seconds for VirusTotal API requests
 
@@ -480,19 +481,79 @@ def extract_email_info(email_bytes, file_type):
     return email_info
 
 def extract_sender_ip_from_email(msg) -> Optional[str]:
-    """More efficient IP extraction using pre-compiled pattern."""
-    received_headers = msg.get_all('Received')
-    if not received_headers:
-        return None
+    """Extract sender's IP address from email headers.
     
-    for header in received_headers:
-        ip_match = IP_PATTERN.search(header)
-        if ip_match:
-            return ip_match.group(0)
-    return None
+    For MSG files, this parses the Received headers to find the originating IP.
+    For EML files, it uses the standard email header parsing.
+    
+    Args:
+        msg: The email message object
+        
+    Returns:
+        The sender's IP address as a string, or None if not found
+    """
+    try:
+        # Handle MSG files
+        if hasattr(msg, 'header'):
+            received_headers = msg.header.get("Received", [])
+            if not received_headers:
+                return None
+                
+            # Process each Received header to find the originating IP
+            for header in received_headers:
+                # Look for common IP patterns in Received headers
+                ip_match = IP_PATTERN.search(header)
+                if ip_match:
+                    ip = ip_match.group(0)
+                    # Validate it's a real IP address
+                    try:
+                        ip_address(ip)
+                        return ip
+                    except ValueError:
+                        continue
+            return None
+            
+        # Handle EML files
+        received_headers = msg.get_all('Received')
+        if not received_headers:
+            return None
+            
+        for header in received_headers:
+            ip_match = IP_PATTERN.search(header)
+            if ip_match:
+                ip = ip_match.group(0)
+                # Validate it's a real IP address
+                try:
+                    ip_address(ip)
+                    return ip
+                except ValueError:
+                    continue
+        return None
+        
+    except Exception as e:
+        print(f"{RED}[-]{RESET} Error extracting sender IP: {str(e)}")
+        return None
 
 def extract_attachment_metadata(part, file_type: str = "eml") -> Dict:
-    """Optimized metadata extraction with type hints."""
+    """
+    Extract metadata from an email attachment.
+    
+    Args:
+        part: The email part containing the attachment
+        file_type: The type of email file ("eml" or "msg")
+    
+    Returns:
+        Dict containing:
+            - filename: The name of the attachment
+            - content_type: The MIME type of the attachment
+            - size: Size in bytes
+            - sha256: SHA256 hash of the attachment
+            - content_disposition: Content disposition header
+            - content_transfer_encoding: Content transfer encoding
+            - content_id: Content ID if present
+            - x_unix_mode: Unix file mode if present
+            - error: Error message if processing failed
+    """
     if file_type == "eml":
         payload = part.get_payload(decode=True) if part.get_payload() else None
         
@@ -891,12 +952,12 @@ def main():
         force_fresh = input(f"{BLUE_BOLD}Force fresh VirusTotal analysis? (y/n):{RESET} ").strip().lower() == 'y'
 
     if not os.path.isfile(file_path):
-        print("[-] File does not exist. Please provide a valid file path.")
+        print(f"{RED}[-]{RESET} File does not exist. Please provide a valid file path.")
         return
 
     file_extension = os.path.splitext(file_path)[1].lower()
     if file_extension not in {".msg", ".eml"}:
-        print("[-] Unsupported file format. Only .msg and .eml are supported.")
+        print(f"{RED}[-]{RESET} Unsupported file format. Only .msg and .eml are supported.")
         return
 
     file_type = file_extension[1:]  # Remove the dot
@@ -1007,9 +1068,11 @@ def main():
         
         # Print attachments with integrated security analysis
         print_attachments(email_info['attachments'], suspicious_attachments, enable_vt)
+        
+        print(f"\n{GREEN}[+]{RESET} Email analysis completed successfully")
 
     except Exception as e:
-        print(f"[-] Error processing email: {str(e)}")
+        print(f"{RED}[-]{RESET} Error processing email: {str(e)}")
         return
 
 if __name__ == "__main__":
