@@ -561,11 +561,11 @@ def extract_attachment_metadata(part, file_type: str = "eml") -> Dict:
 
 def format_section_header(title: str) -> str:
     """Create a formatted section header."""
-    return f"\n{BLUE_BOLD}{title}{RESET}\n{SEPARATOR}"
+    return f"\n{RED}{title}{RESET}\n{SEPARATOR}"
 
 def format_subsection_header(title: str) -> str:
     """Create a formatted subsection header."""
-    return f"\n{BLUE_BOLD}{title}{RESET}\n{SUBSEPARATOR}"
+    return f"\n{RED}{title}{RESET}\n{SUBSEPARATOR}"
 
 def format_field(label: str, value: str) -> str:
     """Format a field with its label and value."""
@@ -771,7 +771,7 @@ def print_attachments(attachments: List[Dict], suspicious_attachments: List[Dict
             elif not vt_results.get('found'):
                 print(format_field("    Status", "File not found in VirusTotal database"))
             else:
-                print(format_field("    Malicious Detections", str(vt_results['malicious'])))
+                print(format_field("    Malicious Detections", f"{RED}{str(vt_results['malicious'])}{RESET}" if vt_results['malicious'] > 0 else str(vt_results['malicious'])))
                 print(format_field("    Suspicious Detections", str(vt_results['suspicious'])))
                 print(format_field("    Clean Scans", str(vt_results['undetected'])))
                 print(format_field("    Total Scans", str(vt_results['total_scans'])))
