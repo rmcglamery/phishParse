@@ -1,41 +1,59 @@
-# PhishParse
+# phishParse
 
-A powerful Python script for analyzing email files (.msg and .eml) to detect potential phishing indicators and security threats.
+A powerful tool for analyzing email files (.msg and .eml) for potential phishing indicators.
+
+## Version
+Current version: 1.1
 
 ## Features
 
-- Supports both .msg (Outlook) and .eml email file formats
-- Extracts and analyzes email metadata including:
-  - Sender and recipient information
-  - Email subject and date
-  - Attachments with detailed metadata
-  - Links and URLs
-  - Sender IP addresses
-- Security analysis features:
-  - Suspicious keyword detection
-  - URL analysis with VirusTotal integration
-  - Attachment analysis for suspicious file types and MIME types
-  - File hash analysis
-- Color-coded console output for better readability
-- Detailed file metadata analysis
+- **File Support**: Analyzes both .msg (Outlook) and .eml (standard email) files
+- **Content Analysis**:
+  - Extracts and analyzes email headers
+  - Identifies sender information and IP addresses
+  - Extracts and defangs URLs
+  - Analyzes email body content
+  - Handles both plain text and HTML content
+- **Attachment Analysis**:
+  - Extracts attachment metadata
+  - Identifies suspicious file types
+  - Calculates file hashes
+  - Handles missing filename attributes gracefully
+- **Security Features**:
+  - Defangs URLs and IP addresses for safe display
+  - Identifies suspicious keywords
+  - Analyzes MX records
+  - Performs WHOIS lookups on IP addresses
+- **VirusTotal Integration**:
+  - Optional VirusTotal API integration
+  - URL and file hash analysis
+  - Configurable timeout and retry settings
+- **User Interface**:
+  - Color-coded output
+  - Formatted sections for easy reading
+  - Detailed error reporting
 
 ## Requirements
 
-- Python 3.x
-- Required Python packages:
-  - `extract_msg`
-  - `beautifulsoup4`
-  - `requests`
+- Python 3.6 or higher
+- Required packages (see requirements.txt):
+  - extract-msg>=0.46.0
+  - beautifulsoup4>=4.12.0
+  - requests>=2.31.0
+  - python-dateutil>=2.8.2
+  - dnspython>=2.4.2
+  - python-whois>=0.8.0
+  - ipwhois>=1.2.0
 
 ## Installation
 
-1. Clone this repository:
+1. Clone the repository:
 ```bash
 git clone https://github.com/yourusername/phishParse.git
 cd phishParse
 ```
 
-2. Install the required dependencies:
+2. Install required packages:
 ```bash
 pip install -r requirements.txt
 ```
@@ -47,59 +65,44 @@ export VIRUSTOTAL_API_KEY='your_api_key_here'
 
 ## Usage
 
-Run the script from the command line:
-
+Run the script:
 ```bash
 python phishParse.py
 ```
 
-The script will prompt you to enter the path to the email file you want to analyze.
+The script will prompt you for:
+1. The path to the email file (.msg or .eml)
+2. Whether to enable VirusTotal analysis
+3. Whether to force fresh VirusTotal analysis
 
 ## Output
 
-The script provides detailed analysis in the following sections:
+The script provides detailed analysis including:
+- File details (name, size, hash, etc.)
+- Email metadata (subject, date, participants)
+- Technical details (IP addresses, MX records)
+- Content preview
+- Security analysis (suspicious keywords, links, attachments)
+- VirusTotal results (if enabled)
 
-1. File Details
-   - Filename and location
-   - File type and size
-   - Creation and modification dates
-   - SHA256 hash
+## Error Handling
 
-2. Email Analysis Results
-   - Basic Information (subject, date)
-   - Participants (from, to, cc, bcc, reply-to)
-   - Technical Details (sender's IP)
-   - Content Preview
-
-3. Security Analysis
-   - Suspicious Keywords
-   - URL Analysis with VirusTotal results
-   - Attachment Analysis
-   - File Hash Analysis
-
-## VirusTotal Integration
-
-The script integrates with VirusTotal to provide additional security analysis:
-- URL reputation checking
-- File hash analysis
-- Malicious content detection
-
-To use VirusTotal features, you need to:
-1. Sign up for a VirusTotal account
-2. Get your API key
-3. Set the environment variable `VIRUSTOTAL_API_KEY`
-
-## Security Considerations
-
-- The script handles potentially malicious content safely
-- URLs are defanged in the output
-- IP addresses are defanged in the output
-- Large attachments are flagged for review
-
-## Author
-
-Russ McGlamery
+The script includes robust error handling for:
+- Missing or invalid files
+- Unsupported file types
+- Network connectivity issues
+- API rate limits
+- Missing attachment attributes
+- Encoding issues
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request. 
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Author
+
+Russ McGlamery 
