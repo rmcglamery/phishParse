@@ -981,9 +981,17 @@ def main():
             # Remove excessive whitespace and newlines
             body_text = ' '.join(body_text.split())
             
-            # Take first 200 characters, but ensure we don't cut words in half
-            if len(body_text) > 200:
-                preview = body_text[:200].rsplit(' ', 1)[0] + "..."
+            # Remove any HTML tags if present
+            if '<' in body_text and '>' in body_text:
+                soup = BeautifulSoup(body_text, 'html.parser')
+                body_text = soup.get_text(separator=' ', strip=True)
+            
+            # Remove any non-printable characters
+            body_text = ''.join(char for char in body_text if char.isprintable() or char.isspace())
+            
+            # Take first 1000 characters, but ensure we don't cut words in half
+            if len(body_text) > 1000:
+                preview = body_text[:1000].rsplit(' ', 1)[0] + "..."
             else:
                 preview = body_text
             
