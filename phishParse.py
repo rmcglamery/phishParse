@@ -891,12 +891,12 @@ def main():
         force_fresh = input(f"{BLUE_BOLD}Force fresh VirusTotal analysis? (y/n):{RESET} ").strip().lower() == 'y'
 
     if not os.path.isfile(file_path):
-        print("❌ File does not exist. Please provide a valid file path.")
+        print("[-] File does not exist. Please provide a valid file path.")
         return
 
     file_extension = os.path.splitext(file_path)[1].lower()
     if file_extension not in {".msg", ".eml"}:
-        print("❌ Unsupported file format. Only .msg and .eml are supported.")
+        print("[-] Unsupported file format. Only .msg and .eml are supported.")
         return
 
     file_type = file_extension[1:]  # Remove the dot
@@ -1001,7 +1001,7 @@ def main():
         print_attachments(email_info['attachments'], suspicious_attachments, enable_vt)
 
     except Exception as e:
-        print(f"❌ Error processing email: {str(e)}")
+        print(f"[-] Error processing email: {str(e)}")
         return
 
 if __name__ == "__main__":
