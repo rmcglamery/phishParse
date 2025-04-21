@@ -7,7 +7,7 @@ BANNER = r'''
 | '_ \| '_ \| / __| '_ \| |_) / _` | '__/ __/ _  \
 | |_) | | | | \__ \ | | |  __/ (_| | |  \__ \  __/
 | .__/|_| |_|_|___/_| |_|_|   \__,_|_|  |___\___|
-|_|                  phishParse v1.1
+|_|                  phishParse v1.5
 '''
 
 import re
@@ -32,6 +32,7 @@ from ipaddress import ip_address
 import quopri
 import urllib.parse
 import mimetypes
+import openai
 
 # Cache compiled regex patterns
 URL_PATTERN = re.compile(r'(https?://\S+)')
@@ -81,6 +82,7 @@ BLUE_BOLD = "\033[1;34m" if supports_color() else ""
 RESET = "\033[0m" if supports_color() else ""
 PURPLE = "\033[35m" if supports_color() else ""
 GREEN = "\033[32m" if supports_color() else ""
+ORANGE = "\033[33m" if supports_color() else ""
 
 # Add these constants at the top
 SECTION_WIDTH = 60
@@ -713,6 +715,121 @@ def check_virustotal_url(url: str, force_fresh: bool = False) -> Dict:
     except Exception as e:
         return {"error": str(e)}
 
+def sanitize_email_content(content: str) -> str:
+    """Sanitize email content before sending to ChatGPT."""
+    # Remove any email addresses
+    content = re.sub(r'[\w\.-]+@[\w\.-]+\.\w+', '[REDACTED_EMAIL]', content)
+    
+    # Remove any phone numbers
+    content = re.sub(r'(\+\d{1,3}[-.]?)?\(?\d{3}\)?[-.]?\d{3}[-.]?\d{4}', '[REDACTED_PHONE]', content)
+    
+    # Remove any credit card numbers
+    content = re.sub(r'\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}', '[REDACTED_CC]', content)
+    
+    # Remove any social security numbers
+    content = re.sub(r'\d{3}[- ]?\d{2}[- ]?\d{4}', '[REDACTED_SSN]', content)
+    
+    return content
+
+def format_chatgpt_response(response_text: str) -> str:
+    """Format ChatGPT response with color coding and remove asterisks."""
+    # Remove asterisks
+    response_text = response_text.replace('*', '')
+    
+    # Split the response into lines
+    lines = response_text.split('\n')
+    formatted_lines = []
+    
+    for line in lines:
+        # Check for risk assessment in various formats
+        if any(risk in line.lower() for risk in ['risk assessment:', 'risk level:', 'overall risk:']):
+            if 'high' in line.lower():
+                line = line.replace('High', f'{RED}High{RESET}')
+                line = line.replace('HIGH', f'{RED}HIGH{RESET}')
+            elif 'medium' in line.lower():
+                line = line.replace('Medium', f'{ORANGE}Medium{RESET}')
+                line = line.replace('MEDIUM', f'{ORANGE}MEDIUM{RESET}')
+            elif 'low' in line.lower():
+                line = line.replace('Low', f'{GREEN}Low{RESET}')
+                line = line.replace('LOW', f'{GREEN}LOW{RESET}')
+        formatted_lines.append(line)
+    
+    # Join the lines back together
+    return '\n'.join(formatted_lines)
+
+def analyze_with_chatgpt(email_info: Dict, suspicious_links: List[Dict], suspicious_attachments: List[Dict], found_keywords: Set[str]) -> Dict:
+    """Analyze email indicators using ChatGPT API."""
+    if not os.getenv('OPENAI_API_KEY'):
+        return {"error": "No OpenAI API key provided"}
+    
+    try:
+        # Sanitize sensitive information
+        sanitized_subject = sanitize_email_content(email_info['subject'])
+        sanitized_sender = sanitize_email_content(email_info['sender'])
+        sanitized_to = sanitize_email_content(email_info['to'])
+        sanitized_body = sanitize_email_content(email_info['body'][:1000])
+        
+        # Prepare the prompt with sanitized email information
+        prompt = f"""Analyze this email for potential phishing/malicious indicators:
+
+Subject: {sanitized_subject}
+From: {sanitized_sender}
+To: {sanitized_to}
+Date: {email_info['date']}
+
+Body Preview: {sanitized_body}
+
+Suspicious Keywords Found: {', '.join(found_keywords) if found_keywords else 'None'}
+
+Suspicious Links ({len(suspicious_links)}):
+"""
+        
+        # Add suspicious links information (URLs are already defanged)
+        for link in suspicious_links:
+            prompt += f"- URL: {link['url']}\n"
+            if link['vt_results']:
+                prompt += f"  VirusTotal Results: {link['vt_results']}\n"
+        
+        prompt += "\nSuspicious Attachments:\n"
+        for att in suspicious_attachments:
+            prompt += f"- Filename: {att['filename']}\n"
+            prompt += f"  Reasons: {', '.join(att['reasons'])}\n"
+        
+        prompt += "\nPlease analyze these indicators and provide:\n1. Overall risk assessment (Low/Medium/High)\n2. Key suspicious elements found\n3. Recommendations for further investigation\n4. Potential impact if malicious"
+        
+        # Initialize the OpenAI client
+        client = openai.OpenAI()
+        
+        try:
+            # Call ChatGPT API using the new format
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a cybersecurity expert analyzing email phishing indicators."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=1000
+            )
+            
+            # Format the response
+            formatted_analysis = format_chatgpt_response(response.choices[0].message.content)
+            
+            return {
+                "success": True,
+                "analysis": formatted_analysis
+            }
+            
+        except openai.RateLimitError:
+            return {"error": "OpenAI API rate limit exceeded. Please try again later."}
+        except openai.APITimeoutError:
+            return {"error": "OpenAI API request timed out. Please try again."}
+        except openai.APIError as e:
+            return {"error": f"OpenAI API error: {str(e)}"}
+            
+    except Exception as e:
+        return {"error": f"Unexpected error: {str(e)}"}
+
 def analyze_phishing(email_info: Dict, enable_virustotal: bool = False, force_fresh: bool = False) -> Tuple[Set[str], List[Dict], List[Dict]]:
     """Optimized phishing analysis with type hints."""
     body = email_info["body"].lower()
@@ -943,13 +1060,19 @@ def main():
 
     file_path = input(f"{BLUE_BOLD}Please enter the full path to the .msg or .eml file:{RESET} ").strip()
     
-    # Ask if user wants to enable VirusTotal analysis
-    enable_vt = input(f"{BLUE_BOLD}Enable VirusTotal analysis? (y/n):{RESET} ").strip().lower() == 'y'
+    # Ask if user wants to enable VirusTotal analysis (default to Y)
+    vt_prompt = f"{BLUE_BOLD}Enable VirusTotal analysis? (Y/n):{RESET} "
+    enable_vt = input(vt_prompt).strip().lower() in {'', 'y', 'yes'}
     
-    # Ask if user wants to force fresh VirusTotal analysis
+    # Ask if user wants to force fresh VirusTotal analysis (default to Y)
     force_fresh = False
     if enable_vt:
-        force_fresh = input(f"{BLUE_BOLD}Force fresh VirusTotal analysis? (y/n):{RESET} ").strip().lower() == 'y'
+        fresh_prompt = f"{BLUE_BOLD}Force fresh VirusTotal analysis? (Y/n):{RESET} "
+        force_fresh = input(fresh_prompt).strip().lower() in {'', 'y', 'yes'}
+    
+    # Ask if user wants to enable ChatGPT analysis (default to Y)
+    chatgpt_prompt = f"{BLUE_BOLD}Enable ChatGPT analysis? (Y/n):{RESET} "
+    enable_chatgpt = input(chatgpt_prompt).strip().lower() in {'', 'y', 'yes'}
 
     if not os.path.isfile(file_path):
         print(f"{RED}[-]{RESET} File does not exist. Please provide a valid file path.")
@@ -1068,6 +1191,15 @@ def main():
         
         # Print attachments with integrated security analysis
         print_attachments(email_info['attachments'], suspicious_attachments, enable_vt)
+        
+        # ChatGPT Analysis if enabled
+        if enable_chatgpt:
+            print(format_subsection_header("ChatGPT Analysis"))
+            chatgpt_results = analyze_with_chatgpt(email_info, suspicious_links, suspicious_attachments, found_keywords)
+            if chatgpt_results.get('error'):
+                print(format_field("Error", chatgpt_results['error']))
+            else:
+                print(chatgpt_results['analysis'])
         
         print(f"\n{GREEN}[+]{RESET} Email analysis completed successfully")
 
