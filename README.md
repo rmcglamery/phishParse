@@ -39,39 +39,65 @@ Current version: 1.5
   - Formatted sections for easy reading
   - Detailed error reporting
 
-## Requirements
+## System Requirements
 
-- Python 3.6 or higher
-- Required packages (see requirements.txt):
-  - extract-msg>=0.46.0
-  - beautifulsoup4>=4.12.0
-  - requests>=2.31.0
-  - python-dateutil>=2.8.2
-  - dnspython>=2.4.2
-  - python-whois>=0.8.0
-  - ipwhois>=1.2.0
-  - openai>=1.12.0
+- **Operating Systems**:
+  - Linux (Ubuntu 18.04+, CentOS 7+, etc.)
+  - macOS 10.15+
+  - Windows 10/11 (with Python 3.6+)
+- **Hardware**:
+  - CPU: 1+ GHz processor
+  - RAM: 2+ GB
+  - Storage: 100+ MB free space
+- **Software**:
+  - Python 3.6 or higher
+  - pip (Python package manager)
+  - git (for installation)
 
 ## Installation
 
-1. Clone the repository:
+1. Install system dependencies:
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install python3 python3-pip git
+
+# CentOS/RHEL
+sudo yum install python3 python3-pip git
+
+# macOS (using Homebrew)
+brew install python3 git
+
+# Windows
+# Download and install Python 3.6+ from python.org
+# Download and install Git from git-scm.com
+```
+
+2. Clone the repository:
 ```bash
 git clone https://github.com/rmcglamery/phishParse.git
 cd phishParse
 ```
 
-2. Install required packages:
+3. Install required packages:
 ```bash
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
-3. Set up API keys:
+4. Set up API keys:
 ```bash
-# VirusTotal API key (optional)
-export VIRUSTOTAL_API_KEY='your_api_key_here'
+# Get your API keys:
+# - VirusTotal: https://www.virustotal.com/gui/join-us
+# - OpenAI: https://platform.openai.com/api-keys
 
-# OpenAI API key (optional)
+# Linux/macOS: Add to ~/.bashrc or ~/.zshrc
+export VIRUSTOTAL_API_KEY='your_api_key_here'
 export OPENAI_API_KEY='your_api_key_here'
+
+# Windows: Add to System Environment Variables
+# or use setx in Command Prompt
+setx VIRUSTOTAL_API_KEY "your_api_key_here"
+setx OPENAI_API_KEY "your_api_key_here"
 ```
 
 ## Usage
@@ -89,6 +115,12 @@ The script will prompt you for:
 
 Note: Pressing Enter without typing anything will select the default option (Y).
 
+### Performance Notes
+- Typical analysis time: 30-60 seconds
+- File size limit: 50MB
+- Memory usage: ~200MB during analysis
+- Network usage: ~2-5MB per analysis (with APIs enabled)
+
 ## Output
 
 The script provides detailed analysis including:
@@ -100,24 +132,73 @@ The script provides detailed analysis including:
 - VirusTotal results (if enabled)
 - ChatGPT analysis (if enabled) with color-coded risk assessment
 
-## Error Handling
+## Error Handling and Troubleshooting
 
-The script includes robust error handling for:
-- Missing or invalid files
-- Unsupported file types
-- Network connectivity issues
-- API rate limits
-- Missing attachment attributes
-- Encoding issues
-- OpenAI API errors and timeouts
+### Common Errors and Solutions
 
-## Security Features
+1. **File Not Found**
+   - Ensure the file path is correct
+   - Check file permissions
+   - Verify the file exists
 
-- Sensitive information redaction before ChatGPT analysis
-- Secure API key management
-- Defanged URLs and IP addresses
-- Error messages without sensitive information
-- Optional features that can be disabled
+2. **API Key Errors**
+   - Verify API keys are set correctly
+   - Check API key permissions
+   - Ensure network connectivity
+
+3. **Rate Limit Exceeded**
+   - Wait before retrying
+   - Consider upgrading API plan
+   - Reduce analysis frequency
+
+4. **Memory Errors**
+   - Close other memory-intensive applications
+   - Reduce file size
+   - Increase system swap space
+
+5. **Network Issues**
+   - Check internet connection
+   - Verify firewall settings
+   - Test API endpoints
+
+### Interpreting Error Messages
+- `[-]` prefix indicates errors
+- `[+]` prefix indicates success
+- Detailed error messages include:
+  - Error type
+  - Possible cause
+  - Suggested solution
+
+## Security and Compliance
+
+### Data Handling
+- Sensitive information is redacted before analysis
+- No data is stored permanently
+- API calls are made over HTTPS
+- Results are displayed only in the terminal
+
+### Best Practices
+1. **API Key Management**
+   - Use separate API keys for different environments
+   - Rotate keys regularly
+   - Restrict key permissions
+
+2. **File Handling**
+   - Analyze files in isolated environments
+   - Use dedicated analysis machines
+   - Implement proper access controls
+
+3. **Production Use**
+   - Monitor API usage
+   - Implement rate limiting
+   - Log analysis results
+   - Regular security audits
+
+### Compliance Considerations
+- GDPR: Data is processed locally, no permanent storage
+- HIPAA: Sensitive information is redacted
+- PCI DSS: Credit card numbers are sanitized
+- Custom compliance needs can be addressed through configuration
 
 ## Contributing
 

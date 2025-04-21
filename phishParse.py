@@ -1,13 +1,17 @@
 #!/usr/bin/python3
 
+# Version information
+VERSION = "1.5"
+VERSION_INFO = f"phishParse v{VERSION}"
+
 # ASCII Art Banner
-BANNER = r'''
+BANNER = rf'''
        _     _     _     ____                    
  _ __ | |__ (_)___| |__ |  _ \ __ _ _ __ ___  ___
 | '_ \| '_ \| / __| '_ \| |_) / _` | '__/ __/ _  \
 | |_) | | | | \__ \ | | |  __/ (_| | |  \__ \  __/
 | .__/|_| |_|_|___/_| |_|_|   \__,_|_|  |___\___|
-|_|                  phishParse v1.5
+|_|                  {VERSION_INFO}
 '''
 
 import re
@@ -19,7 +23,7 @@ from urllib.parse import urlparse
 import os
 import hashlib
 from functools import lru_cache
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Union
 import sys
 from datetime import datetime
 import requests
@@ -102,7 +106,67 @@ To use VirusTotal integration:
    export VIRUSTOTAL_API_KEY='USE_YOUR_OWN_API_KEY'
 """
 
-@lru_cache(maxsize=128)
+# API Configuration
+class APIError(Exception):
+    """Base class for API-related errors."""
+    pass
+
+class APIKeyError(APIError):
+    """Raised when API key is missing or invalid."""
+    pass
+
+class APIRateLimitError(APIError):
+    """Raised when API rate limit is exceeded."""
+    pass
+
+def validate_api_key(key: str, key_name: str) -> None:
+    """Validate API key format and raise appropriate error if invalid."""
+    if not key:
+        raise APIKeyError(f"{key_name} API key is missing. Please set the {key_name} environment variable.")
+    if len(key) < 32:  # Basic length check for API keys
+        raise APIKeyError(f"{key_name} API key appears to be invalid. Please check your key.")
+
+def get_api_key(key_name: str) -> str:
+    """Get and validate API key from environment variables."""
+    key = os.getenv(key_name)
+    try:
+        validate_api_key(key, key_name)
+        return key
+    except APIKeyError as e:
+        print(f"{RED}Error: {str(e)}{RESET}")
+        print(f"{BLUE}Please set the {key_name} environment variable before running the script.{RESET}")
+        sys.exit(1)
+
+# Update VirusTotal configuration
+VIRUSTOTAL_API_KEY = get_api_key('VIRUSTOTAL_API_KEY')
+OPENAI_API_KEY = get_api_key('OPENAI_API_KEY')
+
+# Add rate limiting
+class RateLimiter:
+    def __init__(self, calls_per_minute: int):
+        self.calls_per_minute = calls_per_minute
+        self.calls = []
+    
+    def wait_if_needed(self):
+        now = time.time()
+        # Remove calls older than 1 minute
+        self.calls = [call for call in self.calls if now - call < 60]
+        if len(self.calls) >= self.calls_per_minute:
+            sleep_time = 60 - (now - self.calls[0])
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+        self.calls.append(now)
+
+# Initialize rate limiters
+VIRUSTOTAL_RATE_LIMITER = RateLimiter(4)  # 4 calls per minute
+OPENAI_RATE_LIMITER = RateLimiter(3)      # 3 calls per minute
+
+# Update cache sizes based on typical usage
+URL_CACHE_SIZE = 1000
+IP_CACHE_SIZE = 500
+DEFANG_CACHE_SIZE = 1000
+
+@lru_cache(maxsize=URL_CACHE_SIZE)
 def defang_url(url: str) -> str:
     """Cache defanged URLs to avoid recomputing."""
     result = url
@@ -110,14 +174,14 @@ def defang_url(url: str) -> str:
         result = pattern.sub(replacement, result)
     return result
 
-@lru_cache(maxsize=128)
+@lru_cache(maxsize=IP_CACHE_SIZE)
 def defang_ip(ip_address: Optional[str]) -> Optional[str]:
     """Cache defanged IPs to avoid recomputing."""
     if ip_address is None:
         return None
     return re.sub(r'\.', '[.]', ip_address)
 
-@lru_cache(maxsize=128)
+@lru_cache(maxsize=IP_CACHE_SIZE)
 def undefang_ip(ip_address: Optional[str]) -> Optional[str]:
     """Cache undefanged IPs to avoid recomputing."""
     if ip_address is None:
@@ -153,21 +217,21 @@ def clean_url(url: str) -> str:
         
         return clean_url
     except Exception as e:
-        print(f"Error cleaning URL {url}: {str(e)}")
+        print(f"{RED}Error cleaning URL {url}: {str(e)}{RESET}")
         return url
 
-def decode_quoted_printable(text):
+def decode_quoted_printable(text: str) -> str:
     """Decode quoted-printable encoded text."""
     try:
         return quopri.decodestring(text.encode('utf-8')).decode('utf-8', errors='ignore')
-    except:
+    except Exception as e:
+        print(f"{RED}Error decoding quoted-printable text: {str(e)}{RESET}")
         return text
 
-def extract_links_from_text(text):
-    """More efficient link extraction using pre-compiled pattern."""
-    # Decode any URL-encoded characters in the text
+def extract_links_from_text(text: str) -> List[str]:
+    """Extract and clean links from text content."""
     try:
-        # First try to decode as unicode escape sequences
+        # Decode any URL-encoded characters in the text
         try:
             decoded_text = text.encode('utf-8').decode('unicode-escape')
         except:
@@ -177,14 +241,16 @@ def extract_links_from_text(text):
             decoded_text = urllib.parse.unquote(decoded_text)
         except:
             pass
-    except:
+    except Exception as e:
+        print(f"{RED}Error decoding text: {str(e)}{RESET}")
         decoded_text = text
+    
     urls = URL_PATTERN.findall(decoded_text)
     return [clean_url(url) for url in urls]
 
-def extract_links_from_html(html_content):
+def extract_links_from_html(html_content: Union[str, bytes]) -> List[str]:
     """Extract links from HTML content, handling encoded URLs."""
-    links = []
+    links: List[str] = []
     try:
         # Handle different content types and encodings
         if isinstance(html_content, bytes):
@@ -248,56 +314,13 @@ def extract_links_from_html(html_content):
                 links.append(cleaned_url)
         
         # Also extract URLs from text content that might be in HTML
-        text_content = soup.get_text()
-        # Clean up the text content
-        text_content = decode_quoted_printable(text_content)
-        text_content = text_content.replace('=\n', '')
-        text_content = text_content.replace('=3D', '=')
+        text_links = extract_links_from_text(html_content)
+        links.extend(text_links)
         
-        # Try to decode unicode escape sequences
-        try:
-            text_content = text_content.encode('utf-8').decode('unicode-escape')
-        except:
-            pass
-        
-        # Try to decode URL-encoded content
-        try:
-            text_content = urllib.parse.unquote(text_content)
-        except:
-            pass
-        
-        # Look for URLs in the text
-        urls = URL_PATTERN.findall(text_content)
-        for url in urls:
-            url = url.strip()
-            url = decode_quoted_printable(url)
-            
-            # Try to decode unicode escape sequences
-            try:
-                url = url.encode('utf-8').decode('unicode-escape')
-            except:
-                pass
-            
-            # Try to decode URL-encoded content
-            try:
-                url = urllib.parse.unquote(url)
-            except:
-                pass
-            
-            cleaned_url = clean_url(url)
-            links.append(cleaned_url)
-        
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_links = []
-        for link in links:
-            if link not in seen:
-                seen.add(link)
-                unique_links.append(link)
-        
-        return unique_links
-    except Exception:
-        return []
+    except Exception as e:
+        print(f"{RED}Error extracting links from HTML: {str(e)}{RESET}")
+    
+    return list(set(links))  # Remove duplicates
 
 def extract_email_info(email_bytes, file_type):
     if file_type == "msg":
