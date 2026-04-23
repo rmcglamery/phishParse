@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # Version information
-VERSION = "1.5"
+VERSION = "1.6"
 VERSION_INFO = f"phishParse v{VERSION}"
 
 # ASCII Art Banner
@@ -313,8 +313,8 @@ def extract_links_from_html(html_content: Union[str, bytes]) -> List[str]:
                 cleaned_url = clean_url(href)
                 links.append(cleaned_url)
         
-        # Also extract URLs from text content that might be in HTML
-        text_links = extract_links_from_text(html_content)
+        # Also extract plain-text URLs that aren't in anchor tags (use parsed text to avoid HTML markup)
+        text_links = extract_links_from_text(soup.get_text())
         links.extend(text_links)
         
     except Exception as e:
@@ -487,6 +487,9 @@ def extract_email_info(email_bytes, file_type):
         except Exception as e:
             print(f"Error converting HTML to text: {str(e)}")
             body = "Error converting HTML content to text"
+
+    # Deduplicate links across all extracted sources before returning
+    links = list(dict.fromkeys(links))
 
     # Return email info in a consistent format
     email_info = {
