@@ -3,7 +3,7 @@
 A powerful tool for analyzing email files (.msg and .eml) for potential phishing indicators.
 
 ## Version
-Current version: 1.5
+Current version: 1.6
 
 ## Features
 
@@ -28,6 +28,7 @@ Current version: 1.5
   - Optional VirusTotal API integration
   - URL and file hash analysis
   - Configurable timeout and retry settings
+  - Deduplicates URLs before scanning — emails with repeated links are only submitted to VirusTotal once per unique URL
 - **ChatGPT Analysis**:
   - Optional AI-powered analysis of email indicators
   - Provides risk assessment and recommendations
