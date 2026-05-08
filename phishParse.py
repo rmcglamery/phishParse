@@ -94,7 +94,6 @@ SEPARATOR = "=" * SECTION_WIDTH
 SUBSEPARATOR = "-" * SECTION_WIDTH
 
 # VirusTotal configuration
-VIRUSTOTAL_API_KEY = os.getenv('VIRUSTOTAL_API_KEY')  # User needs to set this environment variable
 VIRUSTOTAL_TIMEOUT = 30  # Timeout in seconds for VirusTotal API requests
 
 # Add this near the top of the script with other comments
@@ -137,9 +136,8 @@ def get_api_key(key_name: str) -> str:
         print(f"{BLUE}Please set the {key_name} environment variable before running the script.{RESET}")
         sys.exit(1)
 
-# Update VirusTotal configuration
-VIRUSTOTAL_API_KEY = get_api_key('VIRUSTOTAL_API_KEY')
-OPENAI_API_KEY = get_api_key('OPENAI_API_KEY')
+VIRUSTOTAL_API_KEY = os.getenv('VIRUSTOTAL_API_KEY')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 # Add rate limiting
 class RateLimiter:
@@ -1099,6 +1097,14 @@ def main():
     # Ask if user wants to enable ChatGPT analysis (default to Y)
     chatgpt_prompt = f"{BLUE_BOLD}Enable ChatGPT analysis? (Y/n):{RESET} "
     enable_chatgpt = input(chatgpt_prompt).strip().lower() in {'', 'y', 'yes'}
+
+    if enable_vt and not VIRUSTOTAL_API_KEY:
+        print(f"{RED}[-]{RESET} VIRUSTOTAL_API_KEY is not set. Disabling VirusTotal analysis.")
+        enable_vt = False
+
+    if enable_chatgpt and not OPENAI_API_KEY:
+        print(f"{RED}[-]{RESET} OPENAI_API_KEY is not set. Disabling ChatGPT analysis.")
+        enable_chatgpt = False
 
     if not os.path.isfile(file_path):
         print(f"{RED}[-]{RESET} File does not exist. Please provide a valid file path.")
