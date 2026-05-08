@@ -39,7 +39,7 @@ import mimetypes
 import openai
 
 # Cache compiled regex patterns
-URL_PATTERN = re.compile(r'(https?://\S+)')
+URL_PATTERN = re.compile(r'(https?://[^\s<>"\']+)')
 IP_PATTERN = re.compile(r'[\d]+\.[\d]+\.[\d]+\.[\d]+')
 DEFANG_PATTERNS = [
     (re.compile(r'\.'), '[.]'),
@@ -189,6 +189,9 @@ def undefang_ip(ip_address: Optional[str]) -> Optional[str]:
 def clean_url(url: str) -> str:
     """Clean and decode URLs before sending to VirusTotal."""
     try:
+        # Strip trailing punctuation that is never part of a URL
+        url = url.rstrip('><)"\'\\]},;.')
+
         # First decode any URL-encoded characters
         decoded_url = url.encode('utf-8').decode('unicode_escape')
         
