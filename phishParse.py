@@ -39,7 +39,7 @@ import mimetypes
 import openai
 
 # Cache compiled regex patterns
-URL_PATTERN = re.compile(r'(https?://\S+)')
+URL_PATTERN = re.compile(r'(https?://[^\s<>"\']+)')
 IP_PATTERN = re.compile(r'[\d]+\.[\d]+\.[\d]+\.[\d]+')
 DEFANG_PATTERNS = [
     (re.compile(r'\.'), '[.]'),
@@ -189,9 +189,12 @@ def undefang_ip(ip_address: Optional[str]) -> Optional[str]:
 def clean_url(url: str) -> str:
     """Clean and decode URLs before sending to VirusTotal."""
     try:
-        # First decode any URL-encoded characters
-        decoded_url = url.encode('utf-8').decode('unicode_escape')
-        
+        # Strip trailing punctuation that is never part of a URL
+        url = url.rstrip('><)"\'\\]},;.')
+
+        # Decode percent-encoded characters before parsing
+        decoded_url = urllib.parse.unquote(url)
+
         # Parse the URL
         parsed = urlparse(decoded_url)
         
@@ -229,16 +232,7 @@ def decode_quoted_printable(text: str) -> str:
 def extract_links_from_text(text: str) -> List[str]:
     """Extract and clean links from text content."""
     try:
-        # Decode any URL-encoded characters in the text
-        try:
-            decoded_text = text.encode('utf-8').decode('unicode-escape')
-        except:
-            decoded_text = text
-        # Then try to decode as URL-encoded
-        try:
-            decoded_text = urllib.parse.unquote(decoded_text)
-        except:
-            pass
+        decoded_text = urllib.parse.unquote(text)
     except Exception as e:
         print(f"{RED}Error decoding text: {str(e)}{RESET}")
         decoded_text = text
@@ -264,17 +258,8 @@ def extract_links_from_html(html_content: Union[str, bytes]) -> List[str]:
         html_content = html_content.replace('=\n', '')  # Remove soft line breaks
         html_content = html_content.replace('=3D', '=')  # Decode equals signs
         
-        # Try to decode unicode escape sequences
-        try:
-            html_content = html_content.encode('utf-8').decode('unicode-escape')
-        except:
-            pass
-        
-        # Try to decode URL-encoded content
-        try:
-            html_content = urllib.parse.unquote(html_content)
-        except:
-            pass
+        # Decode percent-encoded content
+        html_content = urllib.parse.unquote(html_content)
         
         soup = BeautifulSoup(html_content, "html.parser")
         
@@ -288,17 +273,8 @@ def extract_links_from_html(html_content: Union[str, bytes]) -> List[str]:
                 href = href.strip()
                 href = decode_quoted_printable(href)
                 
-                # Try to decode unicode escape sequences
-                try:
-                    href = href.encode('utf-8').decode('unicode-escape')
-                except:
-                    pass
-                
-                # Try to decode URL-encoded content
-                try:
-                    href = urllib.parse.unquote(href)
-                except:
-                    pass
+                # Decode percent-encoded characters
+                href = urllib.parse.unquote(href)
                 
                 # Handle mailto: links
                 if href.startswith('mailto:'):
