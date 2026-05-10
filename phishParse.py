@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # Version information
-VERSION = "1.6"
+VERSION = "1.6.5"
 VERSION_INFO = f"phishParse v{VERSION}"
 
 # ASCII Art Banner
@@ -30,8 +30,8 @@ import requests
 import time
 import base64
 import dns.resolver
-import whois
 from ipwhois import IPWhois
+import whois
 from ipaddress import ip_address
 import quopri
 import urllib.parse
@@ -94,46 +94,6 @@ SUBSEPARATOR = "-" * SECTION_WIDTH
 
 # VirusTotal configuration
 VIRUSTOTAL_TIMEOUT = 30  # Timeout in seconds for VirusTotal API requests
-
-# Add this near the top of the script with other comments
-"""
-To use VirusTotal integration:
-1. Sign up for a VirusTotal account at https://www.virustotal.com
-2. Get your API key from your profile
-3. Set the environment variable before running the script:
-   export VIRUSTOTAL_API_KEY='USE_YOUR_OWN_API_KEY'
-"""
-
-# API Configuration
-class APIError(Exception):
-    """Base class for API-related errors."""
-    pass
-
-class APIKeyError(APIError):
-    """Raised when API key is missing or invalid."""
-    pass
-
-class APIRateLimitError(APIError):
-    """Raised when API rate limit is exceeded."""
-    pass
-
-def validate_api_key(key: str, key_name: str) -> None:
-    """Validate API key format and raise appropriate error if invalid."""
-    if not key:
-        raise APIKeyError(f"{key_name} API key is missing. Please set the {key_name} environment variable.")
-    if len(key) < 32:  # Basic length check for API keys
-        raise APIKeyError(f"{key_name} API key appears to be invalid. Please check your key.")
-
-def get_api_key(key_name: str) -> str:
-    """Get and validate API key from environment variables."""
-    key = os.getenv(key_name)
-    try:
-        validate_api_key(key, key_name)
-        return key
-    except APIKeyError as e:
-        print(f"{RED}Error: {str(e)}{RESET}")
-        print(f"{BLUE}Please set the {key_name} environment variable before running the script.{RESET}")
-        sys.exit(1)
 
 VIRUSTOTAL_API_KEY = os.getenv('VIRUSTOTAL_API_KEY')
 
@@ -906,14 +866,21 @@ def get_ip_whois_info(ip: str) -> Dict[str, str]:
         # Check if it's a valid IP address
         ip_obj = ip_address(clean_ip)
         
-        # Get WHOIS information
+        # Get ASN/RDAP information
         obj = IPWhois(clean_ip)
         results = obj.lookup_rdap()
-        
-        # Extract relevant information
+
+        # Try whois for a more specific registered org name
+        org = "Unknown"
+        try:
+            w = whois.whois(clean_ip)
+            org = w.org or results.get('asn_description', 'Unknown')
+        except Exception:
+            org = results.get('asn_description', 'Unknown')
+
         whois_info = {
             "range": f"{results.get('asn_cidr', 'Unknown')}",
-            "org": results.get('asn_description', 'Unknown'),
+            "org": org,
             "country": results.get('asn_country_code', 'Unknown')
         }
         
@@ -941,7 +908,8 @@ def main():
     print(f"\n{BLUE}A tool for analyzing .eml and .msg files for potential phishing indicators{RESET}")
     print(f"{BLUE}Author: Russ McGlamery{RESET}\n")
 
-    file_path = input(f"{BLUE_BOLD}Please enter the full path to the .msg or .eml file:{RESET} ").strip()
+    file_path = input(f"{BLUE_BOLD}Please enter the full path to the .msg or .eml file:{RESET} ").strip().strip('"\'')
+    file_path = os.path.expanduser(file_path)
     
     # Ask if user wants to enable VirusTotal analysis (default to Y)
     vt_prompt = f"{BLUE_BOLD}Enable VirusTotal analysis? (Y/n):{RESET} "
@@ -954,7 +922,11 @@ def main():
         force_fresh = input(fresh_prompt).strip().lower() in {'', 'y', 'yes'}
     
     if enable_vt and not VIRUSTOTAL_API_KEY:
-        print(f"{RED}[-]{RESET} VIRUSTOTAL_API_KEY is not set. Disabling VirusTotal analysis.")
+        print(f"\n{RED}[-]{RESET} VIRUSTOTAL_API_KEY environment variable is not set.")
+        print(f"{BLUE}    Set it with: export VIRUSTOTAL_API_KEY=<your_key>{RESET}")
+        choice = input(f"{BLUE_BOLD}    Continue without VirusTotal, or exit to add key? ({WHITE}C{BLUE_BOLD}ontinue/{WHITE}E{BLUE_BOLD}xit):{RESET} ").strip().lower()
+        if choice in {'exit', 'e', 'quit', 'q'}:
+            sys.exit(0)
         enable_vt = False
 
     if not os.path.isfile(file_path):
