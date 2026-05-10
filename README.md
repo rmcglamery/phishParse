@@ -3,7 +3,7 @@
 A powerful tool for analyzing email files (.msg and .eml) for potential phishing indicators.
 
 ## Version
-Current version: 1.6
+Current version: 1.6.5
 
 ## Features
 
@@ -23,18 +23,13 @@ Current version: 1.6
   - Defangs URLs and IP addresses for safe display
   - Identifies suspicious keywords
   - Analyzes MX records
-  - Performs WHOIS lookups on IP addresses
+  - WHOIS lookup for sending server IP organization name
 - **VirusTotal Integration**:
   - Optional VirusTotal API integration
   - URL and file hash analysis
   - Configurable timeout and retry settings
   - Deduplicates URLs before scanning — emails with repeated links are only submitted to VirusTotal once per unique URL
-- **ChatGPT Analysis**:
-  - Optional AI-powered analysis of email indicators
-  - Provides risk assessment and recommendations
-  - Color-coded risk levels (High: Red, Medium: Orange, Low: Green)
-  - Analyzes suspicious elements in context
-  - Sanitizes sensitive information before analysis
+  - Prompts to continue or exit if API key is not set
 - **User Interface**:
   - Color-coded output
   - Formatted sections for easy reading
@@ -85,20 +80,16 @@ cd phishParse
 python3 -m pip install -r requirements.txt
 ```
 
-4. Set up API keys:
+4. Set up API keys (optional):
 ```bash
-# Get your API keys:
-# - VirusTotal: https://www.virustotal.com/gui/join-us
-# - OpenAI: https://platform.openai.com/api-keys
+# VirusTotal: https://www.virustotal.com/gui/join-us
 
 # Linux/macOS: Add to ~/.bashrc or ~/.zshrc
 export VIRUSTOTAL_API_KEY='your_api_key_here'
-export OPENAI_API_KEY='your_api_key_here'
 
 # Windows: Add to System Environment Variables
 # or use setx in Command Prompt
 setx VIRUSTOTAL_API_KEY "your_api_key_here"
-setx OPENAI_API_KEY "your_api_key_here"
 ```
 
 ## Usage
@@ -109,10 +100,11 @@ python3 phishParse.py
 ```
 
 The script will prompt you for:
-1. The path to the email file (.msg or .eml)
+1. The path to the email file (.msg or .eml) — supports `~` and quoted paths
 2. Whether to enable VirusTotal analysis (default: Y)
 3. Whether to force fresh VirusTotal analysis (default: Y)
-4. Whether to enable ChatGPT analysis (default: Y)
+
+If VirusTotal is enabled but no API key is set, the script will ask whether to continue without it or exit to add the key.
 
 Note: Pressing Enter without typing anything will select the default option (Y).
 
@@ -127,11 +119,10 @@ Note: Pressing Enter without typing anything will select the default option (Y).
 The script provides detailed analysis including:
 - File details (name, size, hash, etc.)
 - Email metadata (subject, date, participants)
-- Technical details (IP addresses, MX records)
+- Technical details (IP addresses, sending server organization via WHOIS, MX records)
 - Content preview
 - Security analysis (suspicious keywords, links, attachments)
 - VirusTotal results (if enabled)
-- ChatGPT analysis (if enabled) with color-coded risk assessment
 
 ## Error Handling and Troubleshooting
 
@@ -143,7 +134,7 @@ The script provides detailed analysis including:
    - Verify the file exists
 
 2. **API Key Errors**
-   - Verify API keys are set correctly
+   - Verify the VirusTotal API key is set correctly
    - Check API key permissions
    - Ensure network connectivity
 
@@ -165,15 +156,10 @@ The script provides detailed analysis including:
 ### Interpreting Error Messages
 - `[-]` prefix indicates errors
 - `[+]` prefix indicates success
-- Detailed error messages include:
-  - Error type
-  - Possible cause
-  - Suggested solution
 
 ## Security and Compliance
 
 ### Data Handling
-- Sensitive information is redacted before analysis
 - No data is stored permanently
 - API calls are made over HTTPS
 - Results are displayed only in the terminal
@@ -195,12 +181,6 @@ The script provides detailed analysis including:
    - Log analysis results
    - Regular security audits
 
-### Compliance Considerations
-- GDPR: Data is processed locally, no permanent storage
-- HIPAA: Sensitive information is redacted
-- PCI DSS: Credit card numbers are sanitized
-- Custom compliance needs can be addressed through configuration
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
@@ -211,4 +191,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Author
 
-Russ McGlamery 
+Russ McGlamery
