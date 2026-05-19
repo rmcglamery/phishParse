@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # Version information
-VERSION = "1.7.1"
+VERSION = "1.7.2"
 VERSION_INFO = f"phishParse v{VERSION}"
 
 # ASCII Art Banner
@@ -84,9 +84,7 @@ RED = "\033[31m" if supports_color() else ""
 WHITE = "\033[37m" if supports_color() else ""
 BLUE_BOLD = "\033[1;34m" if supports_color() else ""
 RESET = "\033[0m" if supports_color() else ""
-PURPLE = "\033[35m" if supports_color() else ""
 GREEN = "\033[32m" if supports_color() else ""
-ORANGE = "\033[33m" if supports_color() else ""
 
 # Add these constants at the top
 SECTION_WIDTH = 60
@@ -132,18 +130,18 @@ def defang_url(url: str) -> str:
     return result
 
 @lru_cache(maxsize=IP_CACHE_SIZE)
-def defang_ip(ip_address: Optional[str]) -> Optional[str]:
+def defang_ip(ip_str: Optional[str]) -> Optional[str]:
     """Cache defanged IPs to avoid recomputing."""
-    if ip_address is None:
+    if ip_str is None:
         return None
-    return re.sub(r'\.', '[.]', ip_address)
+    return re.sub(r'\.', '[.]', ip_str)
 
 @lru_cache(maxsize=IP_CACHE_SIZE)
-def undefang_ip(ip_address: Optional[str]) -> Optional[str]:
+def undefang_ip(ip_str: Optional[str]) -> Optional[str]:
     """Cache undefanged IPs to avoid recomputing."""
-    if ip_address is None:
+    if ip_str is None:
         return None
-    return re.sub(r'\[\.\]', '.', ip_address)
+    return re.sub(r'\[\.\]', '.', ip_str)
 
 def clean_url(url: str) -> str:
     """Clean and decode URLs before sending to VirusTotal."""
@@ -255,10 +253,10 @@ def extract_links_from_html(html_content: Union[str, bytes]) -> List[str]:
     
     return list(set(links))  # Remove duplicates
 
-def extract_email_info(email_bytes, file_type):
+def extract_email_info(file_path, email_bytes, file_type):
     if file_type == "msg":
         # Handle Outlook .msg file
-        msg = extract_msg.Message(email_bytes)
+        msg = extract_msg.Message(file_path)
         subject = msg.subject
         sender = msg.sender
         date = msg.date
@@ -979,7 +977,7 @@ def main():
         # Calculate file hash
         file_hash = hashlib.sha256(email_bytes).hexdigest()
 
-        email_info = extract_email_info(email_bytes, file_type)
+        email_info = extract_email_info(file_path, email_bytes, file_type)
         
         # Print file information first
         print(format_section_header("File Details"))

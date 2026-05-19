@@ -3,7 +3,7 @@
 A powerful tool for analyzing email files (.msg and .eml) for potential phishing indicators.
 
 ## Version
-Current version: 1.7.1
+Current version: 1.7.2
 
 ## Features
 
@@ -185,6 +185,13 @@ The script provides detailed analysis including:
    - Regular security audits
 
 ## Changelog
+
+### v1.7.2
+- Fixed `.msg` parsing — `extract_msg.Message` now receives the file path, not raw bytes
+- Fixed `ip_address` import shadowed by parameter names in `defang_ip`/`undefang_ip` — renamed to `ip_str`
+- Removed unused `PURPLE` and `ORANGE` color constants
+- Pinned all dependency versions in `requirements.txt` to prevent unexpected updates
+- Added `*.egg-info/` to `.gitignore`
 
 ### v1.7.1
 - Fixed multi-word keyword detection — phrases like "action required" now correctly matched
