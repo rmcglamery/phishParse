@@ -3,7 +3,7 @@
 A powerful tool for analyzing email files (.msg and .eml) for potential phishing indicators.
 
 ## Version
-Current version: 1.6.5
+Current version: 1.7.0
 
 ## Features
 
@@ -24,16 +24,19 @@ Current version: 1.6.5
   - Identifies suspicious keywords
   - Analyzes MX records
   - WHOIS lookup for sending server IP organization name
+  - Octet-bounded IP address matching to prevent false positives
 - **VirusTotal Integration**:
   - Optional VirusTotal API integration
   - URL and file hash analysis
   - Configurable timeout and retry settings
   - Deduplicates URLs before scanning — emails with repeated links are only submitted to VirusTotal once per unique URL
   - Prompts to continue or exit if API key is not set
+  - Validates API response structure before parsing
 - **User Interface**:
   - Color-coded output
   - Formatted sections for easy reading
   - Detailed error reporting
+  - File size limit enforced (50 MB) before reading
 
 ## System Requirements
 
@@ -180,6 +183,33 @@ The script provides detailed analysis including:
    - Implement rate limiting
    - Log analysis results
    - Regular security audits
+
+## Changelog
+
+### v1.7.0
+- Fixed URL form data encoding when submitting to VirusTotal — URLs with `&` or `=` now encoded correctly
+- Fixed 7 bare `except:` clauses that blocked Ctrl+C — all now use `except Exception:`
+- Fixed IP regex to be octet-bounded — no longer matches values like `1.2.3.4.5`
+- Fixed malformed sender address crashing MX lookup — now uses `email.utils.parseaddr()`
+- Fixed IP address stored defanged internally — raw IP kept for lookups, defanged only at display time
+- Fixed body preview crash on single-word bodies
+- Fixed `.eml` `None` header fields — normalized at extraction to prevent downstream errors
+- Added file size guard — rejects files over 50 MB before reading into memory
+- Added `@lru_cache` to MX record lookups to avoid redundant DNS queries
+- Added VirusTotal response structure validation before parsing stats
+- Added `retry_count` and `depth` limits to IPWhois RDAP lookup to reduce hang risk
+
+### v1.6.5
+- Removed ChatGPT/OpenAI integration
+- Added WHOIS lookup for sending server IP organization name
+- Added interactive prompt when VirusTotal API key is missing
+- Fixed file path handling: `~` expansion and surrounding quote stripping
+- Removed unused dead code (exception classes, stale helpers)
+
+### v1.6
+- Added URL deduplication before VirusTotal submission
+- Fixed URL extraction dropping trailing junk characters
+- Replaced `unicode_escape` codec with `urllib.parse.unquote` for URL decoding
 
 ## Contributing
 

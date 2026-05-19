@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # Version information
-VERSION = "1.6.5"
+VERSION = "1.7.0"
 VERSION_INFO = f"phishParse v{VERSION}"
 
 # ASCII Art Banner
@@ -18,6 +18,7 @@ import re
 import extract_msg
 from email.parser import BytesParser
 from email import policy
+from email.utils import parseaddr
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 import os
@@ -39,7 +40,7 @@ import mimetypes
 
 # Cache compiled regex patterns
 URL_PATTERN = re.compile(r'(https?://[^\s<>"\']+)')
-IP_PATTERN = re.compile(r'[\d]+\.[\d]+\.[\d]+\.[\d]+')
+IP_PATTERN = re.compile(r'\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b')
 DEFANG_PATTERNS = [
     (re.compile(r'\.'), '[.]'),
     (re.compile(r':'), '[:]'),
@@ -205,7 +206,7 @@ def extract_links_from_html(html_content: Union[str, bytes]) -> List[str]:
         if isinstance(html_content, bytes):
             try:
                 html_content = html_content.decode('utf-8', errors='ignore')
-            except:
+            except Exception:
                 html_content = html_content.decode('latin-1', errors='ignore')
         
         # Decode any quoted-printable content
@@ -274,7 +275,7 @@ def extract_email_info(email_bytes, file_type):
                 if isinstance(body, bytes):
                     try:
                         body = body.decode('utf-8', errors='ignore')
-                    except:
+                    except Exception:
                         body = body.decode('latin-1', errors='ignore')
                 body = decode_quoted_printable(body)
                 body_links = extract_links_from_text(body)
@@ -290,7 +291,7 @@ def extract_email_info(email_bytes, file_type):
                 if isinstance(html_body, bytes):
                     try:
                         html_body = html_body.decode('utf-8', errors='ignore')
-                    except:
+                    except Exception:
                         html_body = html_body.decode('latin-1', errors='ignore')
                 html_body = decode_quoted_printable(html_body)
                 html_links = extract_links_from_html(html_body)
@@ -306,7 +307,7 @@ def extract_email_info(email_bytes, file_type):
                     if isinstance(content, bytes):
                         try:
                             content = content.decode('utf-8', errors='ignore')
-                        except:
+                        except Exception:
                             content = content.decode('latin-1', errors='ignore')
                     content = decode_quoted_printable(content)
                     attachment_links = extract_links_from_text(content)
@@ -326,14 +327,13 @@ def extract_email_info(email_bytes, file_type):
     elif file_type == "eml":
         # Handle standard .eml email file
         msg = BytesParser(policy=policy.default).parsebytes(email_bytes)
-        subject = msg['subject']
-        sender = msg['from']
-        date = msg['date']
-        reply_to_address = msg['reply-to']
+        subject = msg['subject'] or 'Unknown'
+        sender = msg['from'] or 'Unknown'
+        date = msg['date'] or 'Unknown'
+        reply_to_address = msg['reply-to'] or ''
 
         # Extract sender's IP address from the 'Received' headers
         sender_ip = extract_sender_ip_from_email(msg)
-        sender_ip = defang_ip(sender_ip)
 
         # Extract the body (handling plain text and HTML parts)
         body = ""
@@ -360,7 +360,7 @@ def extract_email_info(email_bytes, file_type):
                     if isinstance(payload, bytes):
                         try:
                             html_content = payload.decode('utf-8', errors='ignore')
-                        except:
+                        except Exception:
                             html_content = payload.decode('latin-1', errors='ignore')
                     else:
                         html_content = payload
@@ -378,7 +378,7 @@ def extract_email_info(email_bytes, file_type):
                     if isinstance(payload, bytes):
                         try:
                             text_content = payload.decode('utf-8', errors='ignore')
-                        except:
+                        except Exception:
                             text_content = payload.decode('latin-1', errors='ignore')
                     else:
                         text_content = payload
@@ -403,9 +403,9 @@ def extract_email_info(email_bytes, file_type):
             attachments.append(metadata)
 
         # Extract recipients (To, Cc, Bcc)
-        to = msg['to']
-        cc = msg.get('cc', '')
-        bcc = msg.get('bcc', '')
+        to = msg['to'] or ''
+        cc = msg.get('cc') or ''
+        bcc = msg.get('bcc') or ''
 
     else:
         raise ValueError("Unsupported file type")
@@ -618,7 +618,7 @@ def check_virustotal_url(url: str, force_fresh: bool = False) -> Dict:
         
         # First, submit the URL for analysis
         submit_url = "https://www.virustotal.com/api/v3/urls"
-        form_data = f"url={cleaned_url}"
+        form_data = urllib.parse.urlencode({"url": cleaned_url})
         headers["content-type"] = "application/x-www-form-urlencoded"
         submit_response = requests.post(submit_url, headers=headers, data=form_data, timeout=VIRUSTOTAL_TIMEOUT)
         
@@ -639,8 +639,10 @@ def check_virustotal_url(url: str, force_fresh: bool = False) -> Dict:
             
             if response.status_code == 200:
                 data = response.json()
-                stats = data.get('data', {}).get('attributes', {}).get('last_analysis_stats', {})
-                
+                if 'data' not in data or 'attributes' not in data.get('data', {}):
+                    return {"error": "Unexpected VirusTotal response structure"}
+                stats = data['data']['attributes'].get('last_analysis_stats', {})
+
                 # If we have results, return them
                 if stats:
                     # Create the GUI URL
@@ -821,7 +823,9 @@ def check_virustotal(file_hash: str) -> Dict:
         
         if response.status_code == 200:
             data = response.json()
-            stats = data.get('data', {}).get('attributes', {}).get('last_analysis_stats', {})
+            if 'data' not in data or 'attributes' not in data.get('data', {}):
+                return {"error": "Unexpected VirusTotal response structure"}
+            stats = data['data']['attributes'].get('last_analysis_stats', {})
             # Add the GUI URL for the file hash
             gui_url = f"https://www.virustotal.com/gui/file/{file_hash}"
             return {
@@ -840,6 +844,7 @@ def check_virustotal(file_hash: str) -> Dict:
     except Exception as e:
         return {"error": str(e)}
 
+@lru_cache(maxsize=100)
 def get_mx_records(domain: str) -> List[str]:
     """Look up MX records for a domain."""
     try:
@@ -868,7 +873,7 @@ def get_ip_whois_info(ip: str) -> Dict[str, str]:
         
         # Get ASN/RDAP information
         obj = IPWhois(clean_ip)
-        results = obj.lookup_rdap()
+        results = obj.lookup_rdap(inc_raw=False, retry_count=2, depth=1)
 
         # Try whois for a more specific registered org name
         org = "Unknown"
@@ -940,6 +945,11 @@ def main():
 
     file_type = file_extension[1:]  # Remove the dot
     
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+    if os.path.getsize(file_path) > MAX_FILE_SIZE:
+        print(f"{RED}[-]{RESET} File exceeds 50 MB limit.")
+        return
+
     try:
         with open(file_path, "rb") as file:
             email_bytes = file.read()
@@ -984,7 +994,7 @@ def main():
         # Technical details
         print(format_subsection_header("Technical Details"))
         if email_info['sender_ip']:
-            print(format_field("Sender's IP", email_info['sender_ip']))
+            print(format_field("Sender's IP", defang_ip(email_info['sender_ip'])))
             # Get WHOIS information for the IP
             whois_info = get_ip_whois_info(email_info['sender_ip'])
             print(format_field("IP Range", whois_info['range']))
@@ -996,9 +1006,9 @@ def main():
         # Extract domain from sender's email and get MX records
         if email_info['sender']:
             try:
-                # Extract domain from email address
-                domain = email_info['sender'].split('@')[-1].strip('<>')
-                mx_records = get_mx_records(domain)
+                _, addr = parseaddr(email_info['sender'])
+                domain = addr.split('@')[1] if '@' in addr else None
+                mx_records = get_mx_records(domain) if domain else []
                 if mx_records:
                     print(format_field("MX Records", format_list_items(mx_records)))
                 else:
@@ -1014,7 +1024,7 @@ def main():
             if isinstance(body_text, bytes):
                 try:
                     body_text = body_text.decode('utf-8', errors='ignore')
-                except:
+                except Exception:
                     body_text = body_text.decode('latin-1', errors='ignore')
             
             # Remove excessive whitespace and newlines
@@ -1030,7 +1040,9 @@ def main():
             
             # Take first 1000 characters, but ensure we don't cut words in half
             if len(body_text) > 1000:
-                preview = body_text[:1000].rsplit(' ', 1)[0] + "..."
+                truncated = body_text[:1000]
+                cut = truncated.rsplit(' ', 1)
+                preview = (cut[0] if len(cut) > 1 else truncated) + "..."
             else:
                 preview = body_text
             
