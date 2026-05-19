@@ -3,7 +3,7 @@
 A powerful tool for analyzing email files (.msg and .eml) for potential phishing indicators.
 
 ## Version
-Current version: 1.7.0
+Current version: 1.7.1
 
 ## Features
 
@@ -185,6 +185,17 @@ The script provides detailed analysis including:
    - Regular security audits
 
 ## Changelog
+
+### v1.7.1
+- Fixed multi-word keyword detection — phrases like "action required" now correctly matched
+- Fixed rate limiter not being called — VirusTotal calls now properly throttled to 4/min
+- Fixed `force_fresh=False` now checks for existing VT report before submitting — avoids unnecessary re-analysis
+- Fixed headers dict mutation — POST and GET now use separate header dicts
+- Fixed MSG sender IP extraction — now calls `extract_sender_ip_from_email()` like EML does
+- Added VirusTotal API key format validation (must be 64 alphanumeric characters)
+- Added explicit `verify=True` to all requests calls
+- Added non-zero exit code (`sys.exit(1)`) on fatal errors
+- Updated `.gitignore` to exclude `__pycache__/`, `*.pyc`, `.env`, `venv/`
 
 ### v1.7.0
 - Fixed URL form data encoding when submitting to VirusTotal — URLs with `&` or `=` now encoded correctly

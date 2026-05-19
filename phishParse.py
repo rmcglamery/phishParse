@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # Version information
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 VERSION_INFO = f"phishParse v{VERSION}"
 
 # ASCII Art Banner
@@ -96,7 +96,8 @@ SUBSEPARATOR = "-" * SECTION_WIDTH
 # VirusTotal configuration
 VIRUSTOTAL_TIMEOUT = 30  # Timeout in seconds for VirusTotal API requests
 
-VIRUSTOTAL_API_KEY = os.getenv('VIRUSTOTAL_API_KEY')
+_raw_vt_key = os.getenv('VIRUSTOTAL_API_KEY', '')
+VIRUSTOTAL_API_KEY = _raw_vt_key if len(_raw_vt_key) >= 64 and _raw_vt_key.isalnum() else None
 
 # Add rate limiting
 class RateLimiter:
@@ -317,7 +318,7 @@ def extract_email_info(email_bytes, file_type):
             metadata = extract_attachment_metadata(attachment, file_type="msg")
             attachments.append(metadata)
         
-        sender_ip = msg.header.get("Received", [])  # IP extraction is not available from .msg files directly
+        sender_ip = extract_sender_ip_from_email(msg)
         reply_to_address = msg.header.get("Reply-To", None)
 
         # Extract recipients (To, Cc, Bcc)
@@ -603,49 +604,67 @@ def check_virustotal_url(url: str, force_fresh: bool = False) -> Dict:
     """Check a URL against VirusTotal API."""
     if not VIRUSTOTAL_API_KEY:
         return {"error": "No VirusTotal API key provided"}
-    
-    headers = {
+
+    base_headers = {
         "accept": "application/json",
         "x-apikey": VIRUSTOTAL_API_KEY
     }
-    
+
     try:
-        # Clean the URL before checking with VirusTotal
         cleaned_url = clean_url(url)
-        
-        # Create the URL ID using URL-safe base64 encoding
         url_id = base64.urlsafe_b64encode(cleaned_url.encode()).decode().strip("=")
-        
-        # First, submit the URL for analysis
-        submit_url = "https://www.virustotal.com/api/v3/urls"
+        report_url = f"https://www.virustotal.com/api/v3/urls/{url_id}"
+
+        # If not forcing fresh, try fetching an existing report first
+        if not force_fresh:
+            VIRUSTOTAL_RATE_LIMITER.wait_if_needed()
+            response = requests.get(report_url, headers=base_headers, timeout=VIRUSTOTAL_TIMEOUT, verify=True)
+            if response.status_code == 200:
+                data = response.json()
+                if 'data' in data and 'attributes' in data.get('data', {}):
+                    stats = data['data']['attributes'].get('last_analysis_stats', {})
+                    if stats:
+                        gui_url = f"https://www.virustotal.com/gui/url/{url_id}"
+                        return {
+                            "found": True,
+                            "malicious": stats.get('malicious', 0),
+                            "suspicious": stats.get('suspicious', 0),
+                            "undetected": stats.get('undetected', 0),
+                            "harmless": stats.get('harmless', 0),
+                            "timeout": stats.get('timeout', 0),
+                            "total_scans": sum(stats.values()),
+                            "scan_id": url_id,
+                            "gui_url": gui_url
+                        }
+
+        # Submit URL for (re-)analysis
+        VIRUSTOTAL_RATE_LIMITER.wait_if_needed()
+        post_headers = {**base_headers, "content-type": "application/x-www-form-urlencoded"}
         form_data = urllib.parse.urlencode({"url": cleaned_url})
-        headers["content-type"] = "application/x-www-form-urlencoded"
-        submit_response = requests.post(submit_url, headers=headers, data=form_data, timeout=VIRUSTOTAL_TIMEOUT)
-        
+        submit_response = requests.post(
+            "https://www.virustotal.com/api/v3/urls",
+            headers=post_headers, data=form_data,
+            timeout=VIRUSTOTAL_TIMEOUT, verify=True
+        )
+
         if submit_response.status_code != 200:
             return {"error": f"URL submission error: {submit_response.status_code}"}
-        
-        # Wait for initial processing
-        time.sleep(15)  # Wait 15 seconds for initial processing
-        
-        # Try to get the report with retries
+
+        # Poll for results
         max_retries = 5
-        retry_delay = 15  # seconds to wait between retries
-        
+        retry_delay = 15
+        time.sleep(retry_delay)
+
         for attempt in range(max_retries):
-            # Get the URL report
-            report_url = f"https://www.virustotal.com/api/v3/urls/{url_id}"
-            response = requests.get(report_url, headers=headers, timeout=VIRUSTOTAL_TIMEOUT)
-            
+            VIRUSTOTAL_RATE_LIMITER.wait_if_needed()
+            response = requests.get(report_url, headers=base_headers, timeout=VIRUSTOTAL_TIMEOUT, verify=True)
+
             if response.status_code == 200:
                 data = response.json()
                 if 'data' not in data or 'attributes' not in data.get('data', {}):
                     return {"error": "Unexpected VirusTotal response structure"}
                 stats = data['data']['attributes'].get('last_analysis_stats', {})
-
-                # If we have results, return them
                 if stats:
-                    # Create the GUI URL
                     gui_url = f"https://www.virustotal.com/gui/url/{url_id}"
                     return {
                         "found": True,
@@ -654,23 +673,16 @@ def check_virustotal_url(url: str, force_fresh: bool = False) -> Dict:
                         "undetected": stats.get('undetected', 0),
                         "harmless": stats.get('harmless', 0),
                         "timeout": stats.get('timeout', 0),
-                        "total_scans": sum(stats.values()) if stats else 0,
+                        "total_scans": sum(stats.values()),
                         "scan_id": url_id,
                         "gui_url": gui_url
                     }
-            
-            # If this was the last attempt, return a message
-            if attempt == max_retries - 1:
-                return {
-                    "found": False,
-                    "message": "Analysis still in progress. Please try again in a few moments."
-                }
-            
-            # Wait before next retry
-            time.sleep(retry_delay)
-        
-        return {"error": "Maximum retries exceeded"}
-            
+
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+
+        return {"found": False, "message": "Analysis still in progress. Please try again in a few moments."}
+
     except Exception as e:
         return {"error": str(e)}
 
@@ -682,7 +694,7 @@ def analyze_phishing(email_info: Dict, enable_virustotal: bool = False, force_fr
     suspicious_attachments = []
 
     # Keywords analysis
-    found_keywords = SUSPICIOUS_KEYWORDS.intersection(body.split())
+    found_keywords = {kw for kw in SUSPICIOUS_KEYWORDS if kw in body}
     if found_keywords:
         print(format_subsection_header("Suspicious Keywords"))
         print(format_list_items(found_keywords))
@@ -818,8 +830,9 @@ def check_virustotal(file_hash: str) -> Dict:
     
     try:
         # Check if the hash exists in VirusTotal
+        VIRUSTOTAL_RATE_LIMITER.wait_if_needed()
         url = f"https://www.virustotal.com/api/v3/files/{file_hash}"
-        response = requests.get(url, headers=headers, timeout=VIRUSTOTAL_TIMEOUT)
+        response = requests.get(url, headers=headers, timeout=VIRUSTOTAL_TIMEOUT, verify=True)
         
         if response.status_code == 200:
             data = response.json()
@@ -927,7 +940,10 @@ def main():
         force_fresh = input(fresh_prompt).strip().lower() in {'', 'y', 'yes'}
     
     if enable_vt and not VIRUSTOTAL_API_KEY:
-        print(f"\n{RED}[-]{RESET} VIRUSTOTAL_API_KEY environment variable is not set.")
+        if os.getenv('VIRUSTOTAL_API_KEY'):
+            print(f"\n{RED}[-]{RESET} VIRUSTOTAL_API_KEY appears invalid (must be 64 alphanumeric characters).")
+        else:
+            print(f"\n{RED}[-]{RESET} VIRUSTOTAL_API_KEY environment variable is not set.")
         print(f"{BLUE}    Set it with: export VIRUSTOTAL_API_KEY=<your_key>{RESET}")
         choice = input(f"{BLUE_BOLD}    Continue without VirusTotal, or exit to add key? ({WHITE}C{BLUE_BOLD}ontinue/{WHITE}E{BLUE_BOLD}xit):{RESET} ").strip().lower()
         if choice in {'exit', 'e', 'quit', 'q'}:
@@ -1063,7 +1079,7 @@ def main():
 
     except Exception as e:
         print(f"{RED}[-]{RESET} Error processing email: {str(e)}")
-        return
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
