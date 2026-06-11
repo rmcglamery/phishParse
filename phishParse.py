@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # Version information
-VERSION = "1.7.2"
+VERSION = "1.7.3"
 VERSION_INFO = f"phishParse v{VERSION}"
 
 # ASCII Art Banner
@@ -317,6 +317,7 @@ def extract_email_info(file_path, email_bytes, file_type):
             attachments.append(metadata)
         
         sender_ip = extract_sender_ip_from_email(msg)
+        auth_results = extract_auth_results(msg)
         reply_to_address = msg.header.get("Reply-To", None)
 
         # Extract recipients (To, Cc, Bcc)
@@ -333,6 +334,7 @@ def extract_email_info(file_path, email_bytes, file_type):
 
         # Extract sender's IP address from the 'Received' headers
         sender_ip = extract_sender_ip_from_email(msg)
+        auth_results = extract_auth_results(msg)
 
         # Extract the body (handling plain text and HTML parts)
         body = ""
@@ -433,7 +435,8 @@ def extract_email_info(file_path, email_bytes, file_type):
         "body": body,
         "links": links,
         "attachments": attachments,
-        "sender_ip": sender_ip
+        "sender_ip": sender_ip,
+        "auth_results": auth_results
     }
 
     return email_info
@@ -491,6 +494,54 @@ def extract_sender_ip_from_email(msg) -> Optional[str]:
     except Exception as e:
         print(f"{RED}[-]{RESET} Error extracting sender IP: {str(e)}")
         return None
+
+def extract_auth_results(msg) -> Dict:
+    """Extract SPF, DKIM, and DMARC authentication results from email headers."""
+    results = {
+        "spf": {"status": "none", "details": ""},
+        "dkim": {"status": "none", "details": ""},
+        "dmarc": {"status": "none", "details": ""},
+        "dkim_signature_present": False,
+    }
+
+    try:
+        is_msg_file = hasattr(msg, 'header')
+        if is_msg_file:
+            get_header = lambda name, default="": msg.header.get(name, default) or default
+            get_all_headers = lambda name: msg.header.get_all(name) or []
+        else:
+            get_header = lambda name, default="": msg.get(name, default) or default
+            get_all_headers = lambda name: msg.get_all(name) or []
+
+        if get_header("DKIM-Signature"):
+            results["dkim_signature_present"] = True
+
+        received_spf = get_header("Received-SPF")
+        if received_spf:
+            for status in ("pass", "fail", "softfail", "neutral", "temperror", "permerror", "none"):
+                if received_spf.lower().startswith(status):
+                    results["spf"] = {"status": status, "details": received_spf.strip()}
+                    break
+
+        for header in get_all_headers("Authentication-Results"):
+            header_lower = header.lower()
+            if results["spf"]["status"] == "none":
+                m = re.search(r'\bspf=([\w]+)', header_lower)
+                if m:
+                    results["spf"] = {"status": m.group(1), "details": header.strip()}
+            if results["dkim"]["status"] == "none":
+                m = re.search(r'\bdkim=([\w]+)', header_lower)
+                if m:
+                    results["dkim"] = {"status": m.group(1), "details": header.strip()}
+            if results["dmarc"]["status"] == "none":
+                m = re.search(r'\bdmarc=([\w]+)', header_lower)
+                if m:
+                    results["dmarc"] = {"status": m.group(1), "details": header.strip()}
+
+    except Exception as e:
+        print(f"{RED}[-]{RESET} Error extracting authentication results: {str(e)}")
+
+    return results
 
 def extract_attachment_metadata(part, file_type: str = "eml") -> Dict:
     """
@@ -1030,6 +1081,23 @@ def main():
             except Exception as e:
                 print(format_field("MX Records", f"Error: {str(e)}"))
         
+        # Authentication checks
+        print(format_subsection_header("Authentication"))
+        auth = email_info['auth_results']
+
+        def auth_color(status: str) -> str:
+            if status == "pass":
+                return GREEN
+            if status in ("fail", "softfail", "permerror"):
+                return RED
+            return WHITE
+
+        for proto, label in (("spf", "SPF"), ("dkim", "DKIM"), ("dmarc", "DMARC")):
+            status = auth[proto]["status"]
+            print(format_field(label, f"{auth_color(status)}{status.upper()}{RESET}"))
+        if not auth["dkim_signature_present"] and auth["dkim"]["status"] == "none":
+            print(f"  {WHITE}(No DKIM-Signature header present){RESET}")
+
         # Content preview
         print(format_subsection_header("Content"))
         try:
@@ -1066,7 +1134,20 @@ def main():
         
         # Security Analysis
         print(format_section_header("Security Analysis"))
-        
+
+        # Authentication failures
+        auth = email_info['auth_results']
+        auth_failures = []
+        for proto, label in (("spf", "SPF"), ("dkim", "DKIM"), ("dmarc", "DMARC")):
+            status = auth[proto]["status"]
+            if status in ("fail", "softfail", "permerror", "temperror"):
+                auth_failures.append(f"{label}: {status.upper()}")
+            elif status == "none":
+                auth_failures.append(f"{label}: NOT CHECKED / NO RESULT")
+        if auth_failures:
+            print(format_subsection_header("Authentication Failures"))
+            print(format_list_items(auth_failures))
+
         # Keywords and Links analysis
         found_keywords, suspicious_links, suspicious_attachments = analyze_phishing(email_info, enable_vt, force_fresh)
         
