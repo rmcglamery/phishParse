@@ -3,7 +3,7 @@
 A powerful tool for analyzing email files (.msg and .eml) for potential phishing indicators.
 
 ## Version
-Current version: 1.7.2
+Current version: 1.7.3
 
 ## Features
 
@@ -25,6 +25,8 @@ Current version: 1.7.2
   - Analyzes MX records
   - WHOIS lookup for sending server IP organization name
   - Octet-bounded IP address matching to prevent false positives
+  - SPF, DKIM, and DMARC authentication checks with color-coded results
+  - Flags authentication failures in the Security Analysis section
 - **VirusTotal Integration**:
   - Optional VirusTotal API integration
   - URL and file hash analysis
@@ -123,8 +125,9 @@ The script provides detailed analysis including:
 - File details (name, size, hash, etc.)
 - Email metadata (subject, date, participants)
 - Technical details (IP addresses, sending server organization via WHOIS, MX records)
+- Authentication results (SPF, DKIM, DMARC) with color-coded pass/fail status
 - Content preview
-- Security analysis (suspicious keywords, links, attachments)
+- Security analysis (suspicious keywords, links, attachments, authentication failures)
 - VirusTotal results (if enabled)
 
 ## Error Handling and Troubleshooting
@@ -185,6 +188,12 @@ The script provides detailed analysis including:
    - Regular security audits
 
 ## Changelog
+
+### v1.7.3
+- Added authentication checks — SPF, DKIM, and DMARC results parsed from `Authentication-Results`, `Received-SPF`, and `DKIM-Signature` headers
+- Added Authentication subsection in Technical Details with color-coded status (green = pass, red = fail/softfail)
+- Added Authentication Failures subsection in Security Analysis when any check fails or returns no result
+- Supports both `.msg` and `.eml` formats for auth header extraction
 
 ### v1.7.2
 - Fixed `.msg` parsing — `extract_msg.Message` now receives the file path, not raw bytes
