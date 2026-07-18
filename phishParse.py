@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
 # Version information
-VERSION = "1.7.3"
+VERSION = "1.7.4"
 VERSION_INFO = f"phishParse v{VERSION}"
 
 # ASCII Art Banner
@@ -34,7 +34,6 @@ import dns.resolver
 from ipwhois import IPWhois
 import whois
 from ipaddress import ip_address
-import quopri
 import urllib.parse
 import mimetypes
 
@@ -143,6 +142,15 @@ def undefang_ip(ip_str: Optional[str]) -> Optional[str]:
         return None
     return re.sub(r'\[\.\]', '.', ip_str)
 
+def decode_bytes(payload: Union[str, bytes]) -> str:
+    """Decode bytes to text, falling back to latin-1 when not valid UTF-8."""
+    if isinstance(payload, bytes):
+        try:
+            return payload.decode('utf-8', errors='ignore')
+        except Exception:
+            return payload.decode('latin-1', errors='ignore')
+    return payload
+
 def clean_url(url: str) -> str:
     """Clean and decode URLs before sending to VirusTotal."""
     try:
@@ -178,14 +186,6 @@ def clean_url(url: str) -> str:
         print(f"{RED}Error cleaning URL {url}: {str(e)}{RESET}")
         return url
 
-def decode_quoted_printable(text: str) -> str:
-    """Decode quoted-printable encoded text."""
-    try:
-        return quopri.decodestring(text.encode('utf-8')).decode('utf-8', errors='ignore')
-    except Exception as e:
-        print(f"{RED}Error decoding quoted-printable text: {str(e)}{RESET}")
-        return text
-
 def extract_links_from_text(text: str) -> List[str]:
     """Extract and clean links from text content."""
     try:
@@ -201,35 +201,24 @@ def extract_links_from_html(html_content: Union[str, bytes]) -> List[str]:
     """Extract links from HTML content, handling encoded URLs."""
     links: List[str] = []
     try:
-        # Handle different content types and encodings
-        if isinstance(html_content, bytes):
-            try:
-                html_content = html_content.decode('utf-8', errors='ignore')
-            except Exception:
-                html_content = html_content.decode('latin-1', errors='ignore')
-        
-        # Decode any quoted-printable content
-        html_content = decode_quoted_printable(html_content)
-        
-        # Clean up common HTML email artifacts
-        html_content = html_content.replace('=\n', '')  # Remove soft line breaks
-        html_content = html_content.replace('=3D', '=')  # Decode equals signs
-        
+        # Content arrives already transfer-decoded (extract_msg / get_payload
+        # with decode=True), so no further quoted-printable decoding is needed.
+        html_content = decode_bytes(html_content)
+
         # Decode percent-encoded content
         html_content = urllib.parse.unquote(html_content)
-        
+
         soup = BeautifulSoup(html_content, "html.parser")
-        
+
         # Extract href attributes from anchor tags
         anchor_tags = soup.find_all('a', href=True)
-        
+
         for a in anchor_tags:
             href = a.get('href')
             if href:
                 # Clean up the href
                 href = href.strip()
-                href = decode_quoted_printable(href)
-                
+
                 # Decode percent-encoded characters
                 href = urllib.parse.unquote(href)
                 
@@ -270,45 +259,27 @@ def extract_email_info(file_path, email_bytes, file_type):
         # Get the body content
         if hasattr(msg, 'body'):
             try:
-                body = msg.body
-                if isinstance(body, bytes):
-                    try:
-                        body = body.decode('utf-8', errors='ignore')
-                    except Exception:
-                        body = body.decode('latin-1', errors='ignore')
-                body = decode_quoted_printable(body)
+                body = decode_bytes(msg.body)
                 body_links = extract_links_from_text(body)
                 links.extend(body_links)
             except Exception as e:
                 print(f"Error extracting body: {str(e)}")
                 body = "Error extracting body content"
-        
+
         # Get HTML content if available
         if hasattr(msg, 'htmlBody'):
             try:
-                html_body = msg.htmlBody
-                if isinstance(html_body, bytes):
-                    try:
-                        html_body = html_body.decode('utf-8', errors='ignore')
-                    except Exception:
-                        html_body = html_body.decode('latin-1', errors='ignore')
-                html_body = decode_quoted_printable(html_body)
+                html_body = decode_bytes(msg.htmlBody)
                 html_links = extract_links_from_html(html_body)
                 links.extend(html_links)
             except Exception as e:
                 print(f"Error extracting HTML body: {str(e)}")
-        
+
         # Extract links from all available parts
         for attachment in msg.attachments:
             try:
                 if hasattr(attachment, 'data') and attachment.data:
-                    content = attachment.data
-                    if isinstance(content, bytes):
-                        try:
-                            content = content.decode('utf-8', errors='ignore')
-                        except Exception:
-                            content = content.decode('latin-1', errors='ignore')
-                    content = decode_quoted_printable(content)
+                    content = decode_bytes(attachment.data)
                     attachment_links = extract_links_from_text(content)
                     links.extend(attachment_links)
             except Exception as e:
@@ -356,39 +327,16 @@ def extract_email_info(file_path, email_bytes, file_type):
                 if not payload:
                     continue
                 
-                # Handle different content types
+                # payload is already transfer-decoded by get_payload(decode=True),
+                # so no further quoted-printable handling is required.
                 if content_type == 'text/html':
-                    if isinstance(payload, bytes):
-                        try:
-                            html_content = payload.decode('utf-8', errors='ignore')
-                        except Exception:
-                            html_content = payload.decode('latin-1', errors='ignore')
-                    else:
-                        html_content = payload
-                    
-                    # Clean up the HTML content
-                    html_content = decode_quoted_printable(html_content)
-                    html_content = html_content.replace('=\n', '')
-                    html_content = html_content.replace('=3D', '=')
-                    
+                    html_content = decode_bytes(payload)
                     html_links = extract_links_from_html(html_content)
                     links.extend(html_links)
                     html_body = html_content
-                
+
                 elif content_type == 'text/plain':
-                    if isinstance(payload, bytes):
-                        try:
-                            text_content = payload.decode('utf-8', errors='ignore')
-                        except Exception:
-                            text_content = payload.decode('latin-1', errors='ignore')
-                    else:
-                        text_content = payload
-                    
-                    # Clean up the text content
-                    text_content = decode_quoted_printable(text_content)
-                    text_content = text_content.replace('=\n', '')
-                    text_content = text_content.replace('=3D', '=')
-                    
+                    text_content = decode_bytes(payload)
                     text_links = extract_links_from_text(text_content)
                     links.extend(text_links)
                     body = text_content
@@ -442,55 +390,36 @@ def extract_email_info(file_path, email_bytes, file_type):
     return email_info
 
 def extract_sender_ip_from_email(msg) -> Optional[str]:
-    """Extract sender's IP address from email headers.
-    
-    For MSG files, this parses the Received headers to find the originating IP.
-    For EML files, it uses the standard email header parsing.
-    
+    """Extract sender's originating IP address from the Received headers.
+
+    Received headers are ordered newest-first (topmost = the last hop, closest
+    to the recipient). The originating sender is at the bottom, so we walk the
+    headers oldest-first and return the first public IP we find, skipping
+    private, loopback, and reserved addresses that belong to internal relays.
+
     Args:
-        msg: The email message object
-        
+        msg: The email message object (extract_msg Message or email.Message)
+
     Returns:
         The sender's IP address as a string, or None if not found
     """
     try:
-        # Handle MSG files
-        if hasattr(msg, 'header'):
-            received_headers = msg.header.get("Received", [])
-            if not received_headers:
-                return None
-                
-            # Process each Received header to find the originating IP
-            for header in received_headers:
-                # Look for common IP patterns in Received headers
-                ip_match = IP_PATTERN.search(header)
-                if ip_match:
-                    ip = ip_match.group(0)
-                    # Validate it's a real IP address
-                    try:
-                        ip_address(ip)
-                        return ip
-                    except ValueError:
-                        continue
-            return None
-            
-        # Handle EML files
-        received_headers = msg.get_all('Received')
-        if not received_headers:
-            return None
-            
-        for header in received_headers:
-            ip_match = IP_PATTERN.search(header)
-            if ip_match:
-                ip = ip_match.group(0)
-                # Validate it's a real IP address
+        # extract_msg exposes transport headers via .header; both it and the
+        # stdlib email.Message support get_all() returning a list of headers.
+        header_source = msg.header if hasattr(msg, 'header') else msg
+        received_headers = header_source.get_all('Received') or []
+
+        for header in reversed(received_headers):
+            for ip in IP_PATTERN.findall(header):
                 try:
-                    ip_address(ip)
-                    return ip
+                    ip_obj = ip_address(ip)
                 except ValueError:
                     continue
+                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved:
+                    continue
+                return ip
         return None
-        
+
     except Exception as e:
         print(f"{RED}[-]{RESET} Error extracting sender IP: {str(e)}")
         return None
@@ -649,6 +578,20 @@ def format_list_items(items: List[str]) -> str:
         return "None"
     return "\n  • " + "\n  • ".join(items)
 
+def _build_vt_url_result(stats: Dict, url_id: str) -> Dict:
+    """Build a URL analysis result dict from VirusTotal last_analysis_stats."""
+    return {
+        "found": True,
+        "malicious": stats.get('malicious', 0),
+        "suspicious": stats.get('suspicious', 0),
+        "undetected": stats.get('undetected', 0),
+        "harmless": stats.get('harmless', 0),
+        "timeout": stats.get('timeout', 0),
+        "total_scans": sum(stats.values()),
+        "scan_id": url_id,
+        "gui_url": f"https://www.virustotal.com/gui/url/{url_id}",
+    }
+
 def check_virustotal_url(url: str, force_fresh: bool = False) -> Dict:
     """Check a URL against VirusTotal API."""
     if not VIRUSTOTAL_API_KEY:
@@ -673,18 +616,7 @@ def check_virustotal_url(url: str, force_fresh: bool = False) -> Dict:
                 if 'data' in data and 'attributes' in data.get('data', {}):
                     stats = data['data']['attributes'].get('last_analysis_stats', {})
                     if stats:
-                        gui_url = f"https://www.virustotal.com/gui/url/{url_id}"
-                        return {
-                            "found": True,
-                            "malicious": stats.get('malicious', 0),
-                            "suspicious": stats.get('suspicious', 0),
-                            "undetected": stats.get('undetected', 0),
-                            "harmless": stats.get('harmless', 0),
-                            "timeout": stats.get('timeout', 0),
-                            "total_scans": sum(stats.values()),
-                            "scan_id": url_id,
-                            "gui_url": gui_url
-                        }
+                        return _build_vt_url_result(stats, url_id)
 
         # Submit URL for (re-)analysis
         VIRUSTOTAL_RATE_LIMITER.wait_if_needed()
@@ -714,18 +646,7 @@ def check_virustotal_url(url: str, force_fresh: bool = False) -> Dict:
                     return {"error": "Unexpected VirusTotal response structure"}
                 stats = data['data']['attributes'].get('last_analysis_stats', {})
                 if stats:
-                    gui_url = f"https://www.virustotal.com/gui/url/{url_id}"
-                    return {
-                        "found": True,
-                        "malicious": stats.get('malicious', 0),
-                        "suspicious": stats.get('suspicious', 0),
-                        "undetected": stats.get('undetected', 0),
-                        "harmless": stats.get('harmless', 0),
-                        "timeout": stats.get('timeout', 0),
-                        "total_scans": sum(stats.values()),
-                        "scan_id": url_id,
-                        "gui_url": gui_url
-                    }
+                    return _build_vt_url_result(stats, url_id)
 
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
@@ -751,15 +672,8 @@ def analyze_phishing(email_info: Dict, enable_virustotal: bool = False, force_fr
     # Links analysis
     if email_info["links"]:
         print(format_subsection_header("URL Analysis"))
-        # Convert to set to remove duplicates while preserving order
-        unique_urls = []
-        seen_urls = set()
-        for url in email_info["links"]:
-            if url not in seen_urls:
-                seen_urls.add(url)
-                unique_urls.append(url)
-                
-        for original_url in unique_urls:
+        # email_info["links"] is already deduplicated in extract_email_info
+        for original_url in email_info["links"]:
             # Display the defanged URL for safety
             print(f"\n{BLUE_BOLD}URL{RESET}: {defang_url(original_url)}")
             
@@ -833,8 +747,8 @@ def print_attachments(attachments: List[Dict], suspicious_attachments: List[Dict
         print("No attachments found.")
         return
 
-    # Create a set of suspicious filenames for quick lookup
-    suspicious_filenames = {att['filename'] for att in suspicious_attachments}
+    # Map filename -> reasons for quick lookup
+    suspicious_reasons = {att['filename']: att['reasons'] for att in suspicious_attachments}
 
     for idx, attachment in enumerate(attachments, 1):
         filename = attachment['filename']
@@ -862,10 +776,9 @@ def print_attachments(attachments: List[Dict], suspicious_attachments: List[Dict
                 print(format_field("    VirusTotal URL", vt_results['gui_url']))
             
         # If this is a suspicious attachment, print the reasons
-        if filename in suspicious_filenames:
-            susp_att = next(sa for sa in suspicious_attachments if sa['filename'] == filename)
+        if filename in suspicious_reasons:
             print(f"\n  {BLUE_BOLD}⚠️ Security Concerns{RESET}:")
-            print(format_field("  Reasons", format_list_items(susp_att['reasons'])))
+            print(format_field("  Reasons", format_list_items(suspicious_reasons[filename])))
 
 def check_virustotal(file_hash: str) -> Dict:
     """Check a file hash against VirusTotal API."""
@@ -1102,13 +1015,8 @@ def main():
         print(format_subsection_header("Content"))
         try:
             # Clean up the body text
-            body_text = email_info['body']
-            if isinstance(body_text, bytes):
-                try:
-                    body_text = body_text.decode('utf-8', errors='ignore')
-                except Exception:
-                    body_text = body_text.decode('latin-1', errors='ignore')
-            
+            body_text = decode_bytes(email_info['body'])
+
             # Remove excessive whitespace and newlines
             body_text = ' '.join(body_text.split())
             
